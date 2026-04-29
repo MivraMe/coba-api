@@ -10,13 +10,16 @@ Usage:
 import asyncio
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
-PORTAL_URL   = os.getenv("PORTAL_URL",      "https://portail.collegeblondin.qc.ca/pednet")
+load_dotenv()  # charge automatiquement le fichier .env
+
+PORTAL_URL   = os.getenv("PORTAL_URL",        "https://portail.collegeblondin.qc.ca/pednet")
 LOGIN_PATH   = os.getenv("PORTAL_LOGIN_PATH", "/login.coba")
 NOTES_PATH   = os.getenv("PORTAL_NOTES_PATH", "")   # laissez vide si inconnu
-USERNAME     = os.getenv("PORTAL_USERNAME",  "")
-PASSWORD     = os.getenv("PORTAL_PASSWORD",  "")
+USERNAME     = os.getenv("PORTAL_USERNAME",   "")
+PASSWORD     = os.getenv("PORTAL_PASSWORD",   "")
 
 
 async def main():
@@ -56,20 +59,22 @@ async def main():
 
             # Essayer les sélecteurs les plus courants
             candidates_user = [
+                "#C135D_txtCodeUsager",
+                "input[name='C135D_txtCodeUsager']",
                 "input[name='username']", "input[name='user']",
                 "input[name='login']",    "input[name='usager']",
-                "input[name='courriel']", "input[type='text']",
-                "#username", "#user", "#login",
+                "input[type='text']",
             ]
             candidates_pass = [
+                "#C135D_txtMotDePasse",
+                "input[name='C135D_txtMotDePasse']",
                 "input[name='password']", "input[name='pass']",
-                "input[name='motpasse']", "input[type='password']",
-                "#password", "#pass",
+                "input[type='password']",
             ]
             candidates_btn = [
                 "button[type='submit']", "input[type='submit']",
-                "button:has-text('Connexion')", "button:has-text('Login')",
-                "button:has-text('Se connecter')", "button",
+                "button.bouton-souleve", "button:has-text('SE CONNECTER')",
+                "button:has-text('Connexion')", "button",
             ]
 
             sel_user = sel_pass = sel_btn = None

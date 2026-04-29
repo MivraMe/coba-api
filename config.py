@@ -5,17 +5,17 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     # Portal URLs
-    portal_url: str = "https://portal.example.com"
-    portal_login_path: str = "/login"
-    portal_notes_path: str = "/notes"
+    portal_url: str = "https://portail.collegeblondin.qc.ca/pednet"
+    portal_login_path: str = "/login.coba"
+    portal_notes_path: str = "/notes.coba"
 
     # Credentials
     portal_username: str = ""
     portal_password: str = ""
 
     # CSS selectors for login form
-    selector_username_input: str = "input[name='username']"
-    selector_password_input: str = "input[name='password']"
+    selector_username_input: str = "#C135D_txtCodeUsager"
+    selector_password_input: str = "#C135D_txtMotDePasse"
     selector_login_button: str = "button[type='submit']"
 
     # CSS selectors for notes extraction
