@@ -90,15 +90,18 @@ async def fetch_assignments(browser: Browser) -> list[Assignment]:
                     continue
                 raise SessionExpiredError("Portal redirected to login — session expired")
 
-            # Click the "TRAVAUX" nav item. The portal uses client-side
-            # navigation (__doPostBack) — no HTTP response to intercept.
-            # We just wait for tr.grid3__row to appear in the DOM, which
-            # only exists on the TRAVAUX page (not on Actualités).
-            nav_travaux = page.locator("div.treeview__elem", has_text="TRAVAUX").first
+            # Click the "Travaux" nav item (mixed case in portal HTML).
+            # The portal uses client-side postback navigation — the URL never
+            # changes, so we can't use wait_for_url.
+            # tr.grid3__row already exists on the Actualités landing page
+            # (11 rows), so we can't use that as a readiness signal either.
+            # Instead, wait for <h3> "TRAVAUX" which only appears as the
+            # section heading on the Travaux content page.
+            nav_travaux = page.locator("div.treeview__elem", has_text="Travaux").first
             await nav_travaux.wait_for(state="visible", timeout=settings.playwright_timeout_ms)
             await nav_travaux.click()
             await page.wait_for_selector(
-                settings.selector_assignment_row,
+                "h3:has-text('TRAVAUX')",
                 timeout=settings.playwright_timeout_ms,
             )
 
