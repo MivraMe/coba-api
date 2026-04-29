@@ -90,15 +90,22 @@ async def fetch_assignments(browser: Browser) -> list[Assignment]:
                     continue
                 raise SessionExpiredError("Portal redirected to login — session expired")
 
-            # Click the "TRAVAUX" navigation item in the sidebar treeview
+            # Click the "TRAVAUX" navigation item in the sidebar treeview.
+            # Use expect_response so we wait for the AJAX call that loads the
+            # TRAVAUX content rather than relying on networkidle (which may
+            # already be satisfied before the click fires a request).
             nav_travaux = page.locator("div.treeview__elem", has_text="TRAVAUX").first
-            await nav_travaux.wait_for(timeout=settings.playwright_timeout_ms)
-            await nav_travaux.click()
-            await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
+            await nav_travaux.wait_for(state="visible", timeout=settings.playwright_timeout_ms)
+            async with page.expect_response(
+                lambda r: "index.coba" in r.url,
+                timeout=settings.playwright_timeout_ms,
+            ):
+                await nav_travaux.click()
 
-            # Wait for course blocks to appear
+            # Wait for assignment rows — specific to TRAVAUX, not present on
+            # the Actualités landing page (div.tableres exists on both pages).
             await page.wait_for_selector(
-                settings.selector_course_block,
+                settings.selector_assignment_row,
                 timeout=settings.playwright_timeout_ms,
             )
 
