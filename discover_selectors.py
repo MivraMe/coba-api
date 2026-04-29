@@ -107,6 +107,27 @@ async def main():
         Path("debug_after_login.html").write_text(await page.content(), encoding="utf-8")
         print("    HTML sauvegardé dans debug_after_login.html")
 
+        # ── 2b. Diagnostic : éléments contenant "TRAVAUX" avant navigation ──
+        print("\n[2b] Éléments contenant le texte 'TRAVAUX' sur la page d'accueil :")
+        all_els = await page.query_selector_all("*")
+        travaux_els = []
+        for el in all_els:
+            try:
+                txt = (await el.inner_text()).strip()
+                if txt == "TRAVAUX":
+                    tag  = await el.evaluate("e => e.tagName.toLowerCase()")
+                    cls  = await el.get_attribute("class") or ""
+                    id_  = await el.get_attribute("id") or ""
+                    travaux_els.append((tag, cls, id_))
+            except Exception:
+                pass
+        for tag, cls, id_ in travaux_els:
+            print(f"      <{tag} class='{cls}' id='{id_}'>")
+
+        print("\n[2c] tr.grid3__row count sur Actualités (avant clic TRAVAUX) :")
+        rows_before = await page.query_selector_all("tr.grid3__row")
+        print(f"      {len(rows_before)} rangées trouvées")
+
         # ── 3. Page des notes ───────────────────────────────────────────────
         print(f"\n[3] URL après login : {page.url}")
         print("    Dans le navigateur ouvert, naviguez jusqu'à la page qui affiche vos notes.")
