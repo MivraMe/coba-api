@@ -14,8 +14,9 @@ class Settings(BaseSettings):
     portal_password: str = ""
 
     # CSS selectors for login form
-    selector_username_input: str = "#C135D_txtCodeUsager"
-    selector_password_input: str = "#C135D_txtMotDePasse"
+    # The portal uses a dynamic component prefix (e.g. C1C4A_) — use ends-with selector
+    selector_username_input: str = "input[name$='txtCodeUsager']"
+    selector_password_input: str = "input[name$='txtMotDePasse']"
     selector_login_button: str = "button[type='submit']"
 
     # CSS selectors for notes extraction

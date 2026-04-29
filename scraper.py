@@ -25,15 +25,26 @@ def _invalidate_session() -> None:
 async def _do_login(browser: Browser) -> BrowserContext:
     context = await browser.new_context()
     page = await context.new_page()
+    login_url = settings.portal_url + settings.portal_login_path
     try:
-        await page.goto(
-            settings.portal_url + settings.portal_login_path,
-            timeout=settings.playwright_timeout_ms,
-        )
+        await page.goto(login_url, timeout=settings.playwright_timeout_ms)
         await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
         await page.fill(settings.selector_username_input, settings.portal_username)
         await page.fill(settings.selector_password_input, settings.portal_password)
         await page.click(settings.selector_login_button)
+
+        # Wait for navigation away from the login page; if we stay, login failed
+        try:
+            await page.wait_for_url(
+                lambda url: settings.portal_login_path not in url,
+                timeout=settings.playwright_timeout_ms,
+            )
+        except PlaywrightTimeoutError:
+            raise SessionExpiredError(
+                "Login failed — portal did not redirect after submit "
+                "(wrong credentials or form structure changed)"
+            )
+
         await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
 
         if settings.selector_login_success:
