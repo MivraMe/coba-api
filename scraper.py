@@ -90,6 +90,12 @@ async def fetch_assignments(browser: Browser) -> list[Assignment]:
                     continue
                 raise SessionExpiredError("Portal redirected to login — session expired")
 
+            # Click the "TRAVAUX" navigation item in the sidebar treeview
+            nav_travaux = page.locator("div.treeview__elem", has_text="TRAVAUX").first
+            await nav_travaux.wait_for(timeout=settings.playwright_timeout_ms)
+            await nav_travaux.click()
+            await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
+
             # Wait for course blocks to appear
             await page.wait_for_selector(
                 settings.selector_course_block,
