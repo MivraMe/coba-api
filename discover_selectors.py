@@ -108,24 +108,20 @@ async def main():
         print("    HTML sauvegardé dans debug_after_login.html")
 
         # ── 3. Page des notes ───────────────────────────────────────────────
-        if NOTES_PATH:
-            print(f"\n[3] Navigation vers {PORTAL_URL + NOTES_PATH}")
-            await page.goto(PORTAL_URL + NOTES_PATH)
-            await page.wait_for_load_state("networkidle")
-        else:
-            print(f"\n[3] URL après login : {page.url}")
-            print("    Naviguez manuellement dans le navigateur ouvert jusqu'à la page des notes.")
-            print("    Appuyez sur Entrée ici quand vous y êtes…")
-            input()
-            print(f"    URL actuelle : {page.url}")
+        print(f"\n[3] URL après login : {page.url}")
+        print("    Dans le navigateur ouvert, naviguez jusqu'à la page qui affiche vos notes.")
+        print("    Appuyez sur Entrée ici quand vous êtes sur cette page…")
+        input()
+        await page.wait_for_load_state("networkidle")
+        print(f"    URL de la page des notes : {page.url}")
 
         Path("debug_notes.html").write_text(await page.content(), encoding="utf-8")
         print("    HTML sauvegardé dans debug_notes.html")
 
         # Chercher les éléments répétitifs (candidats containers de notes)
-        print("\n    Éléments répétés (≥3x) — candidats containers de notes :")
+        print("\n    Éléments répétés (≥2x) — candidats containers de notes :")
         found_any = False
-        for tag in ["div", "li", "article", "tr", "td"]:
+        for tag in ["div", "li", "article", "tr", "td", "span"]:
             els = await page.query_selector_all(tag)
             classes: list[str] = []
             for el in els:
@@ -133,15 +129,21 @@ async def main():
                 if cls:
                     classes.append(cls.strip())
             for cls, n in sorted(Counter(classes).items(), key=lambda x: -x[1]):
-                if n >= 3:
+                if n >= 2:
                     first_class = cls.split()[0]
-                    print(f"      {n:3}x  <{tag} class='{first_class}'>")
+                    print(f"      {n:3}x  <{tag} class='{first_class}...'>  (full: '{cls}')")
                     found_any = True
-            if found_any:
-                break  # afficher seulement le premier tag avec des répétitions
-
         if not found_any:
-            print("      (aucun élément répété trouvé — vérifiez debug_notes.html manuellement)")
+            print("      (aucun élément répété trouvé)")
+
+        # Afficher aussi tous les titres de sections visibles
+        print("\n    Textes des <th>, <h1>–<h4> visibles (pour identifier la structure) :")
+        for sel in ["h1", "h2", "h3", "h4", "th"]:
+            els = await page.query_selector_all(sel)
+            for el in els:
+                txt = (await el.inner_text()).strip().replace("\n", " ")[:80]
+                if txt:
+                    print(f"      <{sel}>  {txt!r}")
 
         print("\n[4] Partagez la sortie de ce terminal avec Claude.")
         print("    Il mettra à jour les sélecteurs dans config.py.")
