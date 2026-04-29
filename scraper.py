@@ -109,26 +109,45 @@ async def fetch_assignments(browser: Browser) -> list[Assignment]:
             course_blocks = await page.query_selector_all(settings.selector_course_block)
 
             for block in course_blocks:
-                # Course name from the h4 heading inside the block
-                name_el = await block.query_selector(settings.selector_course_name)
-                course_name = (await name_el.inner_text()).strip() if name_el else ""
+                # The h4 course heading is a sibling element before the
+                # tableres block, not a child of it.
+                course_name: str = await block.evaluate("""el => {
+                    let sib = el.previousElementSibling;
+                    while (sib) {
+                        if (sib.tagName === 'H4') return sib.innerText.trim();
+                        sib = sib.previousElementSibling;
+                    }
+                    const h4 = el.parentElement && el.parentElement.querySelector('h4');
+                    return h4 ? h4.innerText.trim() : '';
+                }""")
 
                 rows = await block.query_selector_all(settings.selector_assignment_row)
                 for row in rows:
                     cells = await row.query_selector_all("td")
                     texts = [(await c.inner_text()).strip() for c in cells]
 
-                    # Columns: Catégorie, Travail, Pond., Date assignée, Date due, Date complétée, Résultat
+                    # Row layout (8 cells):
+                    # [0] icon (open_in_new)  ← skip
+                    # [1] Catégorie
+                    # [2] Travail
+                    # [3] Pondération
+                    # [4] Date assignée
+                    # [5] Date due
+                    # [6] Date complétée
+                    # [7] Résultat
+                    if len(texts) < 3 or not texts[2]:
+                        continue  # skip separator / header rows
+
                     assignments.append(
                         Assignment(
                             course=course_name,
-                            category=texts[0] if len(texts) > 0 else "",
-                            title=texts[1] if len(texts) > 1 else "",
-                            weight=texts[2] if len(texts) > 2 else "",
-                            date_assigned=texts[3] or None if len(texts) > 3 else None,
-                            date_due=texts[4] or None if len(texts) > 4 else None,
-                            date_completed=texts[5] or None if len(texts) > 5 else None,
-                            result=texts[6] or None if len(texts) > 6 else None,
+                            category=texts[1] if len(texts) > 1 else "",
+                            title=texts[2] if len(texts) > 2 else "",
+                            weight=texts[3] if len(texts) > 3 else "",
+                            date_assigned=texts[4] or None if len(texts) > 4 else None,
+                            date_due=texts[5] or None if len(texts) > 5 else None,
+                            date_completed=texts[6] or None if len(texts) > 6 else None,
+                            result=texts[7] or None if len(texts) > 7 else None,
                         )
                     )
 
