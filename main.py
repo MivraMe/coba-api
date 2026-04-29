@@ -6,7 +6,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 
 from config import settings
 from models import NotesResponse
-from scraper import fetch_notes, SessionExpiredError
+from scraper import fetch_assignments, SessionExpiredError
 
 
 @asynccontextmanager
@@ -20,14 +20,14 @@ async def lifespan(app: FastAPI):
     await pw.stop()
 
 
-app = FastAPI(title="Notes Portal API", lifespan=lifespan)
+app = FastAPI(title="Notes Portal API — Collège Blondin", lifespan=lifespan)
 
 
 @app.get("/notes", response_model=NotesResponse)
 async def get_notes(request: Request):
     try:
-        notes = await fetch_notes(request.app.state.browser)
-        return NotesResponse(count=len(notes), notes=notes)
+        assignments = await fetch_assignments(request.app.state.browser)
+        return NotesResponse(count=len(assignments), assignments=assignments)
     except PlaywrightTimeoutError as exc:
         return JSONResponse(
             status_code=504,

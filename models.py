@@ -1,12 +1,17 @@
 from pydantic import BaseModel
 
 
-class Note(BaseModel):
+class Assignment(BaseModel):
+    course: str
+    category: str
     title: str
-    body: str
-    date: str | None = None
+    weight: str
+    date_assigned: str | None = None
+    date_due: str | None = None
+    date_completed: str | None = None
+    result: str | None = None
 
 
 class NotesResponse(BaseModel):
     count: int
-    notes: list[Note]
+    assignments: list[Assignment]
