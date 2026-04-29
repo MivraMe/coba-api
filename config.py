@@ -8,10 +8,6 @@ class Settings(BaseSettings):
     portal_url: str = "https://portail.collegeblondin.qc.ca/pednet"
     portal_login_path: str = "/login.coba"
 
-    # Credentials
-    portal_username: str = ""
-    portal_password: str = ""
-
     # CSS selectors for login form
     # The portal uses a dynamic component prefix (e.g. C1C4A_) — ends-with selector
     selector_username_input: str = "input[name$='txtCodeUsager']"

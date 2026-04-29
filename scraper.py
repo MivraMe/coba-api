@@ -1,5 +1,6 @@
 import asyncio
 import time
+from dataclasses import dataclass, field
 
 from playwright.async_api import Browser, BrowserContext, TimeoutError as PlaywrightTimeoutError
 
@@ -11,41 +12,61 @@ class SessionExpiredError(Exception):
     pass
 
 
-_session: BrowserContext | None = None
-_session_url: str | None = None   # post-login URL (contains server session token)
-_session_lock = asyncio.Lock()
-_last_login_at: float = 0.0
+class InvalidCredentialsError(Exception):
+    pass
 
 
-def _invalidate_session() -> None:
-    global _session, _session_url, _last_login_at
-    _session = None
-    _session_url = None
-    _last_login_at = 0.0
+@dataclass
+class _UserSession:
+    context: BrowserContext
+    landing_url: str
+    login_time: float = field(default_factory=time.time)
 
 
-async def _do_login(browser: Browser) -> tuple[BrowserContext, str]:
-    """Returns the authenticated BrowserContext and the post-login landing URL."""
+# Per-user session store and per-user locks
+_sessions: dict[str, _UserSession] = {}
+_user_locks: dict[str, asyncio.Lock] = {}
+_store_lock = asyncio.Lock()  # protects _sessions and _user_locks dicts
+
+
+async def _get_user_lock(username: str) -> asyncio.Lock:
+    async with _store_lock:
+        if username not in _user_locks:
+            _user_locks[username] = asyncio.Lock()
+        return _user_locks[username]
+
+
+async def _invalidate_session(username: str) -> None:
+    async with _store_lock:
+        session = _sessions.pop(username, None)
+    if session:
+        try:
+            await session.context.close()
+        except Exception:
+            pass
+
+
+async def _do_login(browser: Browser, username: str, password: str) -> _UserSession:
     context = await browser.new_context()
     page = await context.new_page()
     login_url = settings.portal_url + settings.portal_login_path
     try:
         await page.goto(login_url, timeout=settings.playwright_timeout_ms)
         await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
-        await page.fill(settings.selector_username_input, settings.portal_username)
-        await page.fill(settings.selector_password_input, settings.portal_password)
+        await page.fill(settings.selector_username_input, username)
+        await page.fill(settings.selector_password_input, password)
         await page.click(settings.selector_login_button)
 
-        # Wait for redirect away from login page
         try:
             await page.wait_for_url(
                 lambda url: settings.portal_login_path not in url,
                 timeout=settings.playwright_timeout_ms,
             )
         except PlaywrightTimeoutError:
-            raise SessionExpiredError(
-                "Login failed — portal did not redirect after submit "
-                "(wrong credentials or form structure changed)"
+            await context.close()
+            raise InvalidCredentialsError(
+                "Login failed — portal did not redirect. "
+                "Check username and password."
             )
 
         await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
@@ -53,50 +74,47 @@ async def _do_login(browser: Browser) -> tuple[BrowserContext, str]:
     finally:
         await page.close()
 
-    return context, landing_url
+    return _UserSession(context=context, landing_url=landing_url)
 
 
-async def _get_or_create_session(browser: Browser) -> tuple[BrowserContext, str]:
-    global _session, _session_url, _last_login_at
-
-    async with _session_lock:
+async def _get_or_create_session(
+    browser: Browser, username: str, password: str
+) -> _UserSession:
+    lock = await _get_user_lock(username)
+    async with lock:
         now = time.time()
-        if _session is not None and _session_url and (now - _last_login_at) < settings.session_ttl_seconds:
-            return _session, _session_url
+        existing = _sessions.get(username)
+        if existing and (now - existing.login_time) < settings.session_ttl_seconds:
+            return existing
 
-        if _session is not None:
+        if existing:
             try:
-                await _session.close()
+                await existing.context.close()
             except Exception:
                 pass
 
-        _session, _session_url = await _do_login(browser)
-        _last_login_at = time.time()
-        return _session, _session_url
+        session = await _do_login(browser, username, password)
+        async with _store_lock:
+            _sessions[username] = session
+        return session
 
 
-async def fetch_assignments(browser: Browser) -> list[Assignment]:
+async def fetch_assignments(
+    browser: Browser, username: str, password: str
+) -> list[Assignment]:
     for attempt in range(2):
-        context, landing_url = await _get_or_create_session(browser)
-        page = await context.new_page()
+        session = await _get_or_create_session(browser, username, password)
+        page = await session.context.new_page()
         try:
-            await page.goto(landing_url, timeout=settings.playwright_timeout_ms)
+            await page.goto(session.landing_url, timeout=settings.playwright_timeout_ms)
             await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
 
-            # Detect redirect back to login — session expired server-side
             if settings.portal_login_path in page.url:
-                _invalidate_session()
+                await _invalidate_session(username)
                 if attempt == 0:
                     continue
                 raise SessionExpiredError("Portal redirected to login — session expired")
 
-            # Click the "Travaux" nav item (mixed case in portal HTML).
-            # The portal uses client-side postback navigation — the URL never
-            # changes, so we can't use wait_for_url.
-            # tr.grid3__row already exists on the Actualités landing page
-            # (11 rows), so we can't use that as a readiness signal either.
-            # Instead, wait for <h3> "TRAVAUX" which only appears as the
-            # section heading on the Travaux content page.
             nav_travaux = page.locator("div.treeview__elem", has_text="Travaux").first
             await nav_travaux.wait_for(state="visible", timeout=settings.playwright_timeout_ms)
             await nav_travaux.click()
@@ -109,8 +127,6 @@ async def fetch_assignments(browser: Browser) -> list[Assignment]:
             course_blocks = await page.query_selector_all(settings.selector_course_block)
 
             for block in course_blocks:
-                # The h4 course heading is a sibling element before the
-                # tableres block, not a child of it.
                 course_name: str = await block.evaluate("""el => {
                     let sib = el.previousElementSibling;
                     while (sib) {
@@ -126,17 +142,10 @@ async def fetch_assignments(browser: Browser) -> list[Assignment]:
                     cells = await row.query_selector_all("td")
                     texts = [(await c.inner_text()).strip() for c in cells]
 
-                    # Row layout (8 cells):
-                    # [0] icon (open_in_new)  ← skip
-                    # [1] Catégorie
-                    # [2] Travail
-                    # [3] Pondération
-                    # [4] Date assignée
-                    # [5] Date due
-                    # [6] Date complétée
-                    # [7] Résultat
+                    # [0] icon  [1] Catégorie  [2] Travail  [3] Pond.
+                    # [4] Date assignée  [5] Date due  [6] Date complétée  [7] Résultat
                     if len(texts) < 3 or not texts[2]:
-                        continue  # skip separator / header rows
+                        continue
 
                     assignments.append(
                         Assignment(
@@ -153,12 +162,10 @@ async def fetch_assignments(browser: Browser) -> list[Assignment]:
 
             return assignments
 
-        except PlaywrightTimeoutError:
-            raise
-        except SessionExpiredError:
+        except (PlaywrightTimeoutError, SessionExpiredError, InvalidCredentialsError):
             raise
         except Exception:
-            _invalidate_session()
+            await _invalidate_session(username)
             raise
         finally:
             await page.close()

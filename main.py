@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 from config import settings
 from models import NotesResponse
-from scraper import fetch_assignments, SessionExpiredError
+from scraper import fetch_assignments, InvalidCredentialsError, SessionExpiredError
 
 
 @asynccontextmanager
@@ -20,14 +22,42 @@ async def lifespan(app: FastAPI):
     await pw.stop()
 
 
-app = FastAPI(title="Notes Portal API — Collège Blondin", lifespan=lifespan)
+app = FastAPI(
+    title="Notes Portal API — Collège Blondin",
+    description=(
+        "Scrape vos travaux depuis le portail pédagogique. "
+        "Authentification via HTTP Basic Auth avec vos identifiants du portail."
+    ),
+    lifespan=lifespan,
+)
+
+security = HTTPBasic()
 
 
 @app.get("/notes", response_model=NotesResponse)
-async def get_notes(request: Request):
+async def get_notes(
+    request: Request,
+    credentials: Annotated[HTTPBasicCredentials, Depends(security)],
+):
+    """
+    Retourne la liste de vos travaux (assignments) depuis le portail.
+
+    Authentification : HTTP Basic Auth avec vos identifiants du portail Collège Blondin.
+    """
     try:
-        assignments = await fetch_assignments(request.app.state.browser)
+        assignments = await fetch_assignments(
+            request.app.state.browser,
+            credentials.username,
+            credentials.password,
+        )
         return NotesResponse(count=len(assignments), assignments=assignments)
+
+    except InvalidCredentialsError as exc:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": str(exc)},
+            headers={"WWW-Authenticate": "Basic realm=\"Portail Collège Blondin\""},
+        )
     except PlaywrightTimeoutError as exc:
         return JSONResponse(
             status_code=504,
