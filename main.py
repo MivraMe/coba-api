@@ -7,8 +7,8 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 from config import settings
-from models import NotesResponse
-from scraper import fetch_assignments, InvalidCredentialsError, SessionExpiredError
+from models import NotesResponse, OnboardingResponse
+from scraper import fetch_assignments, fetch_profile, fetch_onboarding, InvalidCredentialsError, SessionExpiredError
 
 
 @asynccontextmanager
@@ -73,6 +73,71 @@ async def get_notes(
             status_code=500,
             content={"detail": f"Unexpected error: {exc}"},
         )
+
+
+@app.get("/profile")
+async def get_profile(
+    request: Request,
+    credentials: Annotated[HTTPBasicCredentials, Depends(security)],
+):
+    """
+    Retourne le profil de l'étudiant (nom complet, code permanent, photo) depuis la page d'accueil du portail.
+    """
+    try:
+        profile = await fetch_profile(
+            request.app.state.browser,
+            credentials.username,
+            credentials.password,
+        )
+        return profile
+
+    except InvalidCredentialsError as exc:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": str(exc)},
+            headers={"WWW-Authenticate": "Basic realm=\"Portail Collège Blondin\""},
+        )
+    except PlaywrightTimeoutError as exc:
+        return JSONResponse(status_code=504, content={"detail": f"Portal timeout: {exc}"})
+    except SessionExpiredError as exc:
+        return JSONResponse(status_code=502, content={"detail": f"Portal session error: {exc}"})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": f"Unexpected error: {exc}"})
+
+
+@app.get("/onboarding", response_model=OnboardingResponse)
+async def get_onboarding(
+    request: Request,
+    credentials: Annotated[HTTPBasicCredentials, Depends(security)],
+):
+    """
+    Retourne en une seule requête le profil de l'étudiant (nom, code permanent, photo)
+    ainsi que l'ensemble de ses travaux/notes.
+    """
+    try:
+        profile, assignments = await fetch_onboarding(
+            request.app.state.browser,
+            credentials.username,
+            credentials.password,
+        )
+        return OnboardingResponse(
+            profile=profile,
+            count=len(assignments),
+            assignments=assignments,
+        )
+
+    except InvalidCredentialsError as exc:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": str(exc)},
+            headers={"WWW-Authenticate": "Basic realm=\"Portail Collège Blondin\""},
+        )
+    except PlaywrightTimeoutError as exc:
+        return JSONResponse(status_code=504, content={"detail": f"Portal timeout: {exc}"})
+    except SessionExpiredError as exc:
+        return JSONResponse(status_code=502, content={"detail": f"Portal session error: {exc}"})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": f"Unexpected error: {exc}"})
 
 
 @app.get("/health")
