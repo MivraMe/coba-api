@@ -138,6 +138,42 @@ async def main():
             alt     = await el.get_attribute("alt")   or ""
             print(f"      <img> id={img_id!r:40}  class={img_cls!r:20}  src={src[:60]!r}  alt={alt!r}")
 
+        # ── 2b-2. Chercher dans "Mon dossier" ───────────────────────────────
+        print("\n[2b-2] Navigation vers 'Mon dossier' pour chercher nom / code permanent :")
+        try:
+            mon_dossier = page.locator("div.treeview__elem", has_text="Mon dossier").first
+            await mon_dossier.wait_for(state="visible", timeout=8000)
+            await mon_dossier.click()
+            await page.wait_for_load_state("networkidle", timeout=10000)
+            Path("debug_mon_dossier.html").write_text(await page.content(), encoding="utf-8")
+            print("    HTML sauvegardé dans debug_mon_dossier.html")
+
+            # Dump ALL spans/divs/td/p with short text (likely labels or values)
+            print("    Tous les éléments texte courts (< 80 chars) avec id ou class :")
+            for tag in ["span", "div", "p", "td", "label", "h1", "h2", "h3", "h4", "h5"]:
+                els = await page.query_selector_all(tag)
+                for el in els:
+                    el_id  = await el.get_attribute("id")    or ""
+                    el_cls = await el.get_attribute("class") or ""
+                    if not el_id and not el_cls:
+                        continue
+                    try:
+                        txt = (await el.inner_text()).strip().replace("\n", " ")
+                        if 1 < len(txt) < 80:
+                            print(f"      <{tag}> id={el_id!r:40}  class={el_cls!r:30}  → {txt!r}")
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"    [ERREUR] Impossible de naviguer vers 'Mon dossier' : {e}")
+
+        print("\n[2b-3] Retour à la page d'accueil :")
+        try:
+            accueil = page.locator("div.treeview__elem", has_text="Accueil").first
+            await accueil.click()
+            await page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            pass
+
         # ── 2c. Contenu de chaque élément de navigation (treeview) ──────────
         print("\n[2c] Labels du menu de navigation (treeview__elem) :")
         nav_items = await page.query_selector_all("div.treeview__elem")

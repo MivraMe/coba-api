@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # Override via env vars if the portal HTML changes
     selector_profile_name: str = "span[id$='lblNomEtudiant']"
     selector_profile_code: str = "span[id$='lblCodePermanent']"
-    selector_profile_photo: str = "img[id$='imgPhoto']"
+    selector_profile_photo: str = "img[id='image-user']"
 
     # CSS selectors for data extraction (Collège Blondin — TRAVAUX page)
     selector_course_block: str = "div.tableres"   # one block per course
