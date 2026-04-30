@@ -107,8 +107,39 @@ async def main():
         Path("debug_after_login.html").write_text(await page.content(), encoding="utf-8")
         print("    HTML sauvegardé dans debug_after_login.html")
 
-        # ── 2b. Contenu de chaque élément de navigation (treeview) ──────────
-        print("\n[2b] Labels du menu de navigation (treeview__elem) :")
+        # ── 2b. Profil étudiant — page d'accueil ────────────────────────────
+        print("\n[2b] Recherche des données de profil sur la page d'accueil :")
+
+        # Tous les <span> et <div> avec id ou class contenant des mots-clés profil
+        keywords = ["nom", "name", "code", "permanent", "etudiant", "student", "profil", "user", "prenom"]
+        print("    Éléments (span/div/p/label) dont l'id/class contient un mot-clé profil :")
+        for tag in ["span", "div", "p", "label", "td"]:
+            els = await page.query_selector_all(tag)
+            for el in els:
+                el_id  = (await el.get_attribute("id")    or "").lower()
+                el_cls = (await el.get_attribute("class") or "").lower()
+                if any(kw in el_id or kw in el_cls for kw in keywords):
+                    try:
+                        txt = (await el.inner_text()).strip().replace("\n", " ")[:80]
+                        raw_id  = await el.get_attribute("id")    or ""
+                        raw_cls = await el.get_attribute("class") or ""
+                        if txt:
+                            print(f"      <{tag}> id={raw_id!r:40}  class={raw_cls!r:30}  → {txt!r}")
+                    except Exception:
+                        pass
+
+        # Tous les <img> (photo potentielle)
+        imgs = await page.query_selector_all("img")
+        print(f"\n    Images trouvées ({len(imgs)}) :")
+        for el in imgs:
+            img_id  = await el.get_attribute("id")    or ""
+            img_cls = await el.get_attribute("class") or ""
+            src     = await el.get_attribute("src")   or ""
+            alt     = await el.get_attribute("alt")   or ""
+            print(f"      <img> id={img_id!r:40}  class={img_cls!r:20}  src={src[:60]!r}  alt={alt!r}")
+
+        # ── 2c. Contenu de chaque élément de navigation (treeview) ──────────
+        print("\n[2c] Labels du menu de navigation (treeview__elem) :")
         nav_items = await page.query_selector_all("div.treeview__elem")
         for i, el in enumerate(nav_items):
             try:
@@ -119,7 +150,7 @@ async def main():
             except Exception:
                 pass
 
-        print("\n[2c] tr.grid3__row count sur Actualités (avant tout clic) :")
+        print("\n[2d] tr.grid3__row count sur Actualités (avant tout clic) :")
         rows_before = await page.query_selector_all("tr.grid3__row")
         print(f"      {len(rows_before)} rangées trouvées — décompte attendu sur TRAVAUX : 56")
 
