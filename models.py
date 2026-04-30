@@ -15,3 +15,15 @@ class Assignment(BaseModel):
 class NotesResponse(BaseModel):
     count: int
     assignments: list[Assignment]
+
+
+class UserProfile(BaseModel):
+    full_name: str
+    permanent_code: str
+    photo_base64: str | None = None  # base64-encoded image (data URI ready)
+
+
+class OnboardingResponse(BaseModel):
+    profile: UserProfile
+    count: int
+    assignments: list[Assignment]

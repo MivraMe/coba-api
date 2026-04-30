@@ -1,11 +1,12 @@
 import asyncio
+import base64
 import time
 from dataclasses import dataclass, field
 
 from playwright.async_api import Browser, BrowserContext, TimeoutError as PlaywrightTimeoutError
 
 from config import settings
-from models import Assignment
+from models import Assignment, UserProfile
 
 
 class SessionExpiredError(Exception):
@@ -97,6 +98,181 @@ async def _get_or_create_session(
         async with _store_lock:
             _sessions[username] = session
         return session
+
+
+async def _fetch_permanent_code(page) -> str:
+    """Find the value next to the 'Code permanent' label using JS (label-based lookup)."""
+    label = settings.selector_profile_code_label
+    return await page.evaluate("""label => {
+        const headers = document.querySelectorAll('span.libelle-entete');
+        for (const h of headers) {
+            if (h.textContent.trim() === label) {
+                const sib = h.nextElementSibling;
+                return sib ? sib.textContent.trim() : '';
+            }
+        }
+        return '';
+    }""", label)
+
+
+async def _fetch_photo_base64(page, src: str) -> str | None:
+    """Download a portal image via the authenticated browser context and return base64."""
+    if not src:
+        return None
+    if src.startswith("data:"):
+        return src  # already a data URI
+    absolute = src if src.startswith("http") else settings.portal_url + "/" + src.lstrip("/")
+    try:
+        response = await page.context.request.get(absolute)
+        if response.ok:
+            mime = response.headers.get("content-type", "image/jpeg").split(";")[0]
+            data = await response.body()
+            return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+    except Exception:
+        pass
+    return None
+
+
+async def fetch_profile(
+    browser: Browser, username: str, password: str
+) -> UserProfile:
+    session = await _get_or_create_session(browser, username, password)
+    page = await session.context.new_page()
+    try:
+        await page.goto(session.landing_url, timeout=settings.playwright_timeout_ms)
+        await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
+
+        if settings.portal_login_path in page.url:
+            await _invalidate_session(username)
+            raise SessionExpiredError("Portal redirected to login — session expired")
+
+        # Photo is on the home page sidebar (persists across navigation)
+        photo_base64: str | None = None
+        photo_el = await page.query_selector(settings.selector_profile_photo)
+        if photo_el:
+            src = await photo_el.get_attribute("src") or ""
+            photo_base64 = await _fetch_photo_base64(page, src)
+
+        # Name and code permanent are on the "Mon dossier" page
+        nav = page.locator("div.treeview__elem", has_text="Mon dossier").first
+        await nav.wait_for(state="visible", timeout=settings.playwright_timeout_ms)
+        await nav.click()
+        await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
+
+        full_name_el = await page.query_selector(settings.selector_profile_name)
+        full_name = (await full_name_el.inner_text()).strip() if full_name_el else ""
+        permanent_code = await _fetch_permanent_code(page)
+
+        return UserProfile(
+            full_name=full_name,
+            permanent_code=permanent_code,
+            photo_base64=photo_base64,
+        )
+    except (PlaywrightTimeoutError, SessionExpiredError, InvalidCredentialsError):
+        raise
+    except Exception:
+        await _invalidate_session(username)
+        raise
+    finally:
+        await page.close()
+
+
+async def fetch_onboarding(
+    browser: Browser, username: str, password: str
+) -> tuple[UserProfile, list[Assignment]]:
+    """Fetch profile and assignments in a single authenticated session."""
+    for attempt in range(2):
+        session = await _get_or_create_session(browser, username, password)
+        page = await session.context.new_page()
+        try:
+            await page.goto(session.landing_url, timeout=settings.playwright_timeout_ms)
+            await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
+
+            if settings.portal_login_path in page.url:
+                await _invalidate_session(username)
+                if attempt == 0:
+                    continue
+                raise SessionExpiredError("Portal redirected to login — session expired")
+
+            # --- Photo (home page sidebar) ---
+            photo_base64: str | None = None
+            photo_el = await page.query_selector(settings.selector_profile_photo)
+            if photo_el:
+                src = await photo_el.get_attribute("src") or ""
+                photo_base64 = await _fetch_photo_base64(page, src)
+
+            # --- Name + code permanent (Mon dossier) ---
+            nav_dossier = page.locator("div.treeview__elem", has_text="Mon dossier").first
+            await nav_dossier.wait_for(state="visible", timeout=settings.playwright_timeout_ms)
+            await nav_dossier.click()
+            await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
+
+            full_name_el = await page.query_selector(settings.selector_profile_name)
+            full_name = (await full_name_el.inner_text()).strip() if full_name_el else ""
+            permanent_code = await _fetch_permanent_code(page)
+
+            profile = UserProfile(
+                full_name=full_name,
+                permanent_code=permanent_code,
+                photo_base64=photo_base64,
+            )
+
+            # --- Navigate to Travaux ---
+            nav_travaux = page.locator("div.treeview__elem", has_text="Travaux").first
+            await nav_travaux.wait_for(state="visible", timeout=settings.playwright_timeout_ms)
+            await nav_travaux.click()
+            await page.wait_for_selector(
+                "h3:has-text('TRAVAUX')",
+                timeout=settings.playwright_timeout_ms,
+            )
+
+            # --- Assignments ---
+            assignments: list[Assignment] = []
+            course_blocks = await page.query_selector_all(settings.selector_course_block)
+
+            for block in course_blocks:
+                course_name: str = await block.evaluate("""el => {
+                    let sib = el.previousElementSibling;
+                    while (sib) {
+                        if (sib.tagName === 'H4') return sib.innerText.trim();
+                        sib = sib.previousElementSibling;
+                    }
+                    const h4 = el.parentElement && el.parentElement.querySelector('h4');
+                    return h4 ? h4.innerText.trim() : '';
+                }""")
+
+                rows = await block.query_selector_all(settings.selector_assignment_row)
+                for row in rows:
+                    cells = await row.query_selector_all("td")
+                    texts = [(await c.inner_text()).strip() for c in cells]
+
+                    if len(texts) < 3 or not texts[2]:
+                        continue
+
+                    assignments.append(
+                        Assignment(
+                            course=course_name,
+                            category=texts[1] if len(texts) > 1 else "",
+                            title=texts[2] if len(texts) > 2 else "",
+                            weight=texts[3] if len(texts) > 3 else "",
+                            date_assigned=texts[4] or None if len(texts) > 4 else None,
+                            date_due=texts[5] or None if len(texts) > 5 else None,
+                            date_completed=texts[6] or None if len(texts) > 6 else None,
+                            result=texts[7] or None if len(texts) > 7 else None,
+                        )
+                    )
+
+            return profile, assignments
+
+        except (PlaywrightTimeoutError, SessionExpiredError, InvalidCredentialsError):
+            raise
+        except Exception:
+            await _invalidate_session(username)
+            raise
+        finally:
+            await page.close()
+
+    raise SessionExpiredError("Could not establish a valid portal session after retry")
 
 
 async def fetch_assignments(

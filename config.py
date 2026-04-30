@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     selector_password_input: str = "input[name$='txtMotDePasse']"
     selector_login_button: str = "button[type='submit']"
 
+    # CSS selectors for profile data (home page after login)
+    # Override via env vars if the portal HTML changes
+    selector_profile_name: str = "h3.lien-avec-options__libelle"
+    selector_profile_code_label: str = "Code permanent"   # label text next to the code
+    selector_profile_photo: str = "img[id='image-user']"
+
     # CSS selectors for data extraction (Collège Blondin — TRAVAUX page)
     selector_course_block: str = "div.tableres"   # one block per course
     selector_course_name: str = "h4"              # course title inside block
