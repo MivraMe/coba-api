@@ -146,18 +146,22 @@ async def fetch_profile(
             await _invalidate_session(username)
             raise SessionExpiredError("Portal redirected to login — session expired")
 
-        async def _text(selector: str) -> str:
-            el = await page.query_selector(selector)
-            return (await el.inner_text()).strip() if el else ""
-
-        full_name = await _text(settings.selector_profile_name)
-        permanent_code = await _fetch_permanent_code(page)
-
+        # Photo is on the home page sidebar (persists across navigation)
         photo_base64: str | None = None
         photo_el = await page.query_selector(settings.selector_profile_photo)
         if photo_el:
             src = await photo_el.get_attribute("src") or ""
             photo_base64 = await _fetch_photo_base64(page, src)
+
+        # Name and code permanent are on the "Mon dossier" page
+        nav = page.locator("div.treeview__elem", has_text="Mon dossier").first
+        await nav.wait_for(state="visible", timeout=settings.playwright_timeout_ms)
+        await nav.click()
+        await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
+
+        full_name_el = await page.query_selector(settings.selector_profile_name)
+        full_name = (await full_name_el.inner_text()).strip() if full_name_el else ""
+        permanent_code = await _fetch_permanent_code(page)
 
         return UserProfile(
             full_name=full_name,
@@ -190,19 +194,22 @@ async def fetch_onboarding(
                     continue
                 raise SessionExpiredError("Portal redirected to login — session expired")
 
-            # --- Profile (home page) ---
-            async def _text(selector: str) -> str:
-                el = await page.query_selector(selector)
-                return (await el.inner_text()).strip() if el else ""
-
-            full_name = await _text(settings.selector_profile_name)
-            permanent_code = await _fetch_permanent_code(page)
-
+            # --- Photo (home page sidebar) ---
             photo_base64: str | None = None
             photo_el = await page.query_selector(settings.selector_profile_photo)
             if photo_el:
                 src = await photo_el.get_attribute("src") or ""
                 photo_base64 = await _fetch_photo_base64(page, src)
+
+            # --- Name + code permanent (Mon dossier) ---
+            nav_dossier = page.locator("div.treeview__elem", has_text="Mon dossier").first
+            await nav_dossier.wait_for(state="visible", timeout=settings.playwright_timeout_ms)
+            await nav_dossier.click()
+            await page.wait_for_load_state("networkidle", timeout=settings.playwright_timeout_ms)
+
+            full_name_el = await page.query_selector(settings.selector_profile_name)
+            full_name = (await full_name_el.inner_text()).strip() if full_name_el else ""
+            permanent_code = await _fetch_permanent_code(page)
 
             profile = UserProfile(
                 full_name=full_name,
