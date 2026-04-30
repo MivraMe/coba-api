@@ -100,6 +100,21 @@ async def _get_or_create_session(
         return session
 
 
+async def _fetch_permanent_code(page) -> str:
+    """Find the value next to the 'Code permanent' label using JS (label-based lookup)."""
+    label = settings.selector_profile_code_label
+    return await page.evaluate("""label => {
+        const headers = document.querySelectorAll('span.libelle-entete');
+        for (const h of headers) {
+            if (h.textContent.trim() === label) {
+                const sib = h.nextElementSibling;
+                return sib ? sib.textContent.trim() : '';
+            }
+        }
+        return '';
+    }""", label)
+
+
 async def _fetch_photo_base64(page, src: str) -> str | None:
     """Download a portal image via the authenticated browser context and return base64."""
     if not src:
@@ -136,7 +151,7 @@ async def fetch_profile(
             return (await el.inner_text()).strip() if el else ""
 
         full_name = await _text(settings.selector_profile_name)
-        permanent_code = await _text(settings.selector_profile_code)
+        permanent_code = await _fetch_permanent_code(page)
 
         photo_base64: str | None = None
         photo_el = await page.query_selector(settings.selector_profile_photo)
@@ -181,7 +196,7 @@ async def fetch_onboarding(
                 return (await el.inner_text()).strip() if el else ""
 
             full_name = await _text(settings.selector_profile_name)
-            permanent_code = await _text(settings.selector_profile_code)
+            permanent_code = await _fetch_permanent_code(page)
 
             photo_base64: str | None = None
             photo_el = await page.query_selector(settings.selector_profile_photo)

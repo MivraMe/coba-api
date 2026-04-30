@@ -16,8 +16,8 @@ class Settings(BaseSettings):
 
     # CSS selectors for profile data (home page after login)
     # Override via env vars if the portal HTML changes
-    selector_profile_name: str = "span[id$='lblNomEtudiant']"
-    selector_profile_code: str = "span[id$='lblCodePermanent']"
+    selector_profile_name: str = "h3.lien-avec-options__libelle"
+    selector_profile_code_label: str = "Code permanent"   # label text next to the code
     selector_profile_photo: str = "img[id='image-user']"
 
     # CSS selectors for data extraction (Collège Blondin — TRAVAUX page)
