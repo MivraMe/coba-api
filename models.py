@@ -27,3 +27,10 @@ class OnboardingResponse(BaseModel):
     profile: UserProfile
     count: int
     assignments: list[Assignment]
+
+
+class SyncResponse(BaseModel):
+    new_count: int
+    new_assignments: list[Assignment]
+    total_count: int
+    assignments: list[Assignment]

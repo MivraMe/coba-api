@@ -7,8 +7,8 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 from config import settings
-from models import NotesResponse, OnboardingResponse
-from scraper import fetch_assignments, fetch_profile, fetch_onboarding, InvalidCredentialsError, SessionExpiredError
+from models import NotesResponse, OnboardingResponse, SyncResponse
+from scraper import fetch_assignments, fetch_profile, fetch_onboarding, sync_assignments, InvalidCredentialsError, SessionExpiredError
 
 
 @asynccontextmanager
@@ -124,6 +124,46 @@ async def get_onboarding(
             profile=profile,
             count=len(assignments),
             assignments=assignments,
+        )
+
+    except InvalidCredentialsError as exc:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": str(exc)},
+            headers={"WWW-Authenticate": "Basic realm=\"Portail Collège Blondin\""},
+        )
+    except PlaywrightTimeoutError as exc:
+        return JSONResponse(status_code=504, content={"detail": f"Portal timeout: {exc}"})
+    except SessionExpiredError as exc:
+        return JSONResponse(status_code=502, content={"detail": f"Portal session error: {exc}"})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": f"Unexpected error: {exc}"})
+
+
+@app.get("/sync", response_model=SyncResponse)
+async def sync_notes(
+    request: Request,
+    credentials: Annotated[HTTPBasicCredentials, Depends(security)],
+):
+    """
+    Synchronise les travaux et retourne les nouvelles notes détectées depuis le dernier appel.
+
+    - `new_count` / `new_assignments` : notes jamais vues lors d'un sync précédent.
+    - `total_count` / `assignments` : ensemble complet des travaux actuels.
+
+    Au tout premier appel pour un utilisateur, toutes les notes sont considérées nouvelles.
+    """
+    try:
+        all_assignments, new_assignments = await sync_assignments(
+            request.app.state.browser,
+            credentials.username,
+            credentials.password,
+        )
+        return SyncResponse(
+            new_count=len(new_assignments),
+            new_assignments=new_assignments,
+            total_count=len(all_assignments),
+            assignments=all_assignments,
         )
 
     except InvalidCredentialsError as exc:

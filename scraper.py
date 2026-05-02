@@ -29,6 +29,15 @@ _sessions: dict[str, _UserSession] = {}
 _user_locks: dict[str, asyncio.Lock] = {}
 _store_lock = asyncio.Lock()  # protects _sessions and _user_locks dicts
 
+# Per-user seen-note fingerprints for sync/new-note detection
+# Fingerprint: "{course}|{title}"
+_seen_notes: dict[str, set[str]] = {}
+_seen_lock = asyncio.Lock()  # protects _seen_notes dict
+
+
+def _fingerprint(a: "Assignment") -> str:
+    return f"{a.course}|{a.title}"
+
 
 async def _get_user_lock(username: str) -> asyncio.Lock:
     async with _store_lock:
@@ -347,3 +356,25 @@ async def fetch_assignments(
             await page.close()
 
     raise SessionExpiredError("Could not establish a valid portal session after retry")
+
+
+async def sync_assignments(
+    browser: Browser, username: str, password: str
+) -> tuple[list[Assignment], list[Assignment]]:
+    """Return (all_assignments, new_assignments).
+
+    New assignments are those whose fingerprint was not seen in a previous sync
+    for this user. On the very first call all assignments are considered new.
+    The seen-set is updated after every successful call.
+    """
+    current = await fetch_assignments(browser, username, password)
+
+    async with _seen_lock:
+        seen = _seen_notes.get(username)
+        if seen is None:
+            new = list(current)
+        else:
+            new = [a for a in current if _fingerprint(a) not in seen]
+        _seen_notes[username] = {_fingerprint(a) for a in current}
+
+    return current, new
